@@ -1,0 +1,22 @@
+﻿# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Frontend
+node_modules/
+frontend/dist/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db

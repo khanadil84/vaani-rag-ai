@@ -1,0 +1,193 @@
+@import 'tailwindcss';
+
+@theme {
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-display: 'Space Grotesk', 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, 'SFMono-Regular', 'JetBrains Mono', Menlo, Consolas, monospace;
+
+  /* Deep midnight / navy surfaces */
+  --color-night-950: #060b18;
+  --color-night-900: #0a1122;
+  --color-night-850: #0d1530;
+  --color-night-800: #101a38;
+  --color-night-700: #1b2748;
+
+  /* Accent palette */
+  --color-cyan-accent: #22d3ee;
+  --color-violet-accent: #8b5cf6;
+  --color-violet-soft: #a78bfa;
+  --color-saffron-accent: #f59e0b;
+
+  --radius-4xl: 2rem;
+
+  --animate-fade-in: fade-in 0.4s ease-out both;
+  --animate-rise: rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+  --animate-pulse-dot: pulse-dot 2.2s ease-in-out infinite;
+  --animate-ring-pulse: ring-pulse 1.6s ease-in-out infinite;
+  --animate-bar-twinkle: bar-twinkle 2.8s ease-in-out infinite;
+  --animate-flow-y: flow-y 2.2s ease-in-out infinite;
+  --animate-spin-slow: spin-slow 14s linear infinite;
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(12px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes pulse-dot {
+    0%,
+    100% {
+      box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.5);
+    }
+    50% {
+      box-shadow: 0 0 0 6px rgba(52, 211, 153, 0);
+    }
+  }
+
+  @keyframes ring-pulse {
+    0%,
+    100% {
+      opacity: 0.35;
+      transform: scale(1);
+    }
+    50% {
+      opacity: 0.75;
+      transform: scale(1.06);
+    }
+  }
+
+  @keyframes bar-twinkle {
+    0%,
+    100% {
+      opacity: 0.2;
+    }
+    50% {
+      opacity: 0.8;
+    }
+  }
+
+  @keyframes flow-y {
+    0% {
+      transform: translateY(-2px);
+      opacity: 0;
+    }
+    25% {
+      opacity: 1;
+    }
+    80% {
+      opacity: 1;
+    }
+    100% {
+      transform: translateY(26px);
+      opacity: 0;
+    }
+  }
+
+  @keyframes spin-slow {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
+  }
+}
+
+@layer base {
+  html {
+    @apply antialiased;
+  }
+
+  body {
+    @apply bg-night-950 font-sans text-slate-300;
+    background-image:
+      radial-gradient(1100px 500px at 15% -10%, rgba(139, 92, 246, 0.14), transparent 60%),
+      radial-gradient(900px 460px at 90% 0%, rgba(34, 211, 238, 0.1), transparent 55%),
+      radial-gradient(700px 500px at 50% 110%, rgba(245, 158, 11, 0.05), transparent 60%);
+    background-attachment: fixed;
+    min-height: 100vh;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    @apply font-display text-white;
+  }
+
+  ::selection {
+    @apply bg-cyan-accent/30 text-white;
+  }
+
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-cyan-accent;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply rounded-full border-[3px] border-solid border-transparent bg-slate-600/40;
+    background-clip: content-box;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-slate-500/60;
+    background-clip: content-box;
+  }
+}
+
+@utility glass {
+  @apply border border-white/10 bg-white/[0.04] backdrop-blur-xl;
+}
+
+@utility glass-strong {
+  @apply border border-white/10 bg-night-900/80 backdrop-blur-2xl;
+}
+
+@utility text-gradient {
+  background-image: linear-gradient(100deg, #22d3ee 0%, #a78bfa 55%, #c4b5fd 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+@utility card-hover {
+  transition:
+    transform 0.3s cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 0.3s ease,
+    box-shadow 0.3s ease;
+
+  &:hover {
+    transform: translateY(-3px);
+    border-color: rgba(34, 211, 238, 0.35);
+    box-shadow:
+      0 18px 40px -18px rgba(0, 0, 0, 0.65),
+      0 0 0 1px rgba(34, 211, 238, 0.08),
+      0 0 40px -12px rgba(139, 92, 246, 0.35);
+  }
+}
+
+@utility focus-ring {
+  @apply transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-accent;
+}
