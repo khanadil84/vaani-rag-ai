@@ -46,11 +46,20 @@ def retrieve(query, top_k=5):
     for index, score in ranked:
         row = _corpus.iloc[index].to_dict()
 
-        passage = ""
-        for key in ("passage", "text", "sentence", "content"):
-            if key in row and pd.notna(row[key]):
-                passage = str(row[key])
-                break
+        # MSMARCO-XI corpus stores passages in passage_en / passage_hi.
+        # Prefer Hindi evidence when the query contains Devanagari;
+        # otherwise use the English passage.
+        has_hindi = any(
+            "\u0900" <= char <= "\u097F"
+            for char in query
+        )
+
+        passage_key = "passage_hi" if has_hindi else "passage_en"
+        passage = str(row.get(passage_key, "") or "")
+
+        if not passage:
+            fallback_key = "passage_en" if passage_key == "passage_hi" else "passage_hi"
+            passage = str(row.get(fallback_key, "") or "")
 
         if passage:
             evidence.append({
