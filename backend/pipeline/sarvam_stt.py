@@ -1,21 +1,20 @@
 # ============================================================
 # VAANIRAG PHASE 16 — SARVAM STT
+# Production-ready version
 # ============================================================
-
-!pip -q install requests
 
 import os
 import requests
-from google.colab import userdata
 
 
 # ------------------------------------------------------------
 # LOAD SECRET
 # ------------------------------------------------------------
 
-SARVAM_API_KEY = userdata.get("SARVAM_API_KEY")
+SARVAM_API_KEY = os.environ.get("SARVAM_API_KEY")
 
-assert SARVAM_API_KEY, "SARVAM_API_KEY not available"
+if not SARVAM_API_KEY:
+    raise RuntimeError("SARVAM_API_KEY is not configured.")
 
 
 # ------------------------------------------------------------
@@ -71,11 +70,15 @@ def sarvam_stt(
     return text.strip()
 
 
+# ------------------------------------------------------------
+# STARTUP STATUS
+# ------------------------------------------------------------
+
 print("=" * 70)
 print("VAANIRAG — SARVAM STT READY")
 print("=" * 70)
 print("Language:", "hi-IN")
 print("API key:", "configured")
 print("Function:", "sarvam_stt(audio_path)")
-print("[OK] PHASE 16 STT FOUNDATION READY")
+print("[OK] SARVAM STT PRODUCTION READY")
 print("=" * 70)
