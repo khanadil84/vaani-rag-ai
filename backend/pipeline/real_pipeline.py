@@ -40,6 +40,7 @@ _MODEL_NAME = (
 
 _GUARDRAIL_MIN_SCORE = 1.0
 _DEFAULT_TOP_K = 20
+_GUARDRAIL_TOP_K = 5
 
 
 class RealVaaniRagPipeline:
@@ -53,11 +54,8 @@ class RealVaaniRagPipeline:
         self._reranker = None
         self._tokenized_corpus = None
 
-        # Start disconnected.
         self.connected = False
 
-        # Initialization errors must be visible.
-        # Do not silently create a half-initialized pipeline.
         self._load_env()
         self._load_checkpoint()
         self._load_reranker()
@@ -105,28 +103,21 @@ class RealVaaniRagPipeline:
                     f"Required VaaniRAG artifact missing: {path}"
                 )
 
-        # BM25 index
         with open(
             _CHECKPOINT_DIR / "bm25_index.pkl",
             "rb",
         ) as handle:
             bm25_index = pickle.load(handle)
 
-        # Real sentence corpus
         sentence_corpus = pd.read_parquet(
             _CHECKPOINT_DIR / "sentence_corpus.parquet"
         )
 
-        # Existing tokenized corpus artifact
         with open(
             _CHECKPOINT_DIR / "tokenized_corpus.pkl",
             "rb",
         ) as handle:
             tokenized_corpus = pickle.load(handle)
-
-        # --------------------------------------------------------------
-        # Restore query expansion cache from the real corpus.
-        # --------------------------------------------------------------
 
         if "query_hi" not in sentence_corpus.columns:
             raise RuntimeError(
@@ -151,7 +142,6 @@ class RealVaaniRagPipeline:
             and pd.notna(row["answer_hi"])
         }
 
-        # The original Colab modules use module-level globals.
         bm25_cache.query_expansion_cache = (
             query_expansion_cache
         )
@@ -255,14 +245,20 @@ class RealVaaniRagPipeline:
 
         # --------------------------------------------------------------
         # 2. CrossEncoder semantic guardrail
+        #
+        # Only the strongest candidates are reranked. This preserves
+        # the guardrail while avoiding unnecessary CrossEncoder work
+        # over all 20 BM25 candidates.
         # --------------------------------------------------------------
+
+        guardrail_evidence = evidence[:_GUARDRAIL_TOP_K]
 
         rerank_started = time.perf_counter()
 
         grounded, reason = (
             semantic_guardrail.evidence_guard(
                 query,
-                evidence,
+                guardrail_evidence,
                 min_score=_GUARDRAIL_MIN_SCORE,
             )
         )
