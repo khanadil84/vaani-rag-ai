@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { api } from '../lib/api'
 import type { HealthResponse, MetricsResponse } from '../lib/api'
 import type { SystemStatus } from '../types'
@@ -20,29 +20,33 @@ export function useBackendStatus(): BackendStatus {
   const [status, setStatus] = useState<SystemStatus>('unconnected')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const mountedRef = useRef(true)
 
   const refresh = useCallback(async () => {
     setLoading(true)
     setError(null)
 
     const load = async () => {
-      const [healthRes, metricsRes] = await Promise.all([
-        api.health(),
-        api.analytics(),
-      ])
-
-      if (healthRes.ok && healthRes.data) {
-        setHealth(healthRes.data)
-        setStatus(healthRes.data.status)
-      } else if (healthRes.error) {
-        setError(healthRes.error)
-        setStatus('offline')
-      }
+      const metricsRes = await api.analytics()
 
       if (metricsRes.ok && metricsRes.data) {
         setMetrics(metricsRes.data)
+
+        const operationalHealth: HealthResponse = {
+          status: 'operational',
+          version: '0.1.0',
+          uptime: metricsRes.data.uptimeSeconds,
+          service: 'VaaniRAG AI Backend',
+        }
+
+        setHealth(operationalHealth)
+        setStatus('operational')
+        return
       }
+
+      setStatus('offline')
+      setError(
+        metricsRes.error ?? 'Backend is unavailable',
+      )
     }
 
     if (sharedRequest) {
@@ -51,6 +55,7 @@ export function useBackendStatus(): BackendStatus {
     }
 
     sharedRequest = load()
+
     try {
       await sharedRequest
     } finally {
@@ -59,14 +64,17 @@ export function useBackendStatus(): BackendStatus {
   }, [])
 
   useEffect(() => {
-    mountedRef.current = true
     void refresh().finally(() => {
-      if (mountedRef.current) setLoading(false)
+      setLoading(false)
     })
-    return () => {
-      mountedRef.current = false
-    }
   }, [refresh])
 
-  return { status, health, metrics, loading, error, refresh }
+  return {
+    status,
+    health,
+    metrics,
+    loading,
+    error,
+    refresh,
+  }
 }
