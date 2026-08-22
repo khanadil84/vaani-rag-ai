@@ -1,13 +1,16 @@
 /**
- * VaaniRAG AI API client — wired to the live FastAPI backend.
+ * VaaniRAG AI API client.
  *
- * Endpoints:
- *   POST /api/query     run a query through the RAG pipeline
- *   GET  /api/health    backend health + component status
- *   GET  /api/metrics   aggregate runtime metrics
- *   POST /api/stt       Sarvam speech-to-text
+ * Local FastAPI:
+ *   /api/health
+ *   /api/metrics
+ *   /api/knowledge-base
+ *   /api/stt
  *
- * Secrets are never stored here — all keys stay in the backend (.env).
+ * Production Vercel RAG:
+ *   https://vaani-rag-ai.vercel.app/api/query
+ *
+ * Secrets are never stored here.
  */
 
 export interface ApiResult<T> {
@@ -40,6 +43,7 @@ export interface QueryResponse {
   rerank_ms: number | null
   gemini_ms: number | null
   total_ms: number | null
+  deployment?: string
 }
 
 export interface MetricsResponse {
@@ -63,66 +67,165 @@ export interface KnowledgeBaseResponse {
   documents: unknown[]
 }
 
-const BASE_URL = '/api'
+const LOCAL_BASE_URL = '/api'
 
-async function request<T>(path: string, init?: RequestInit): Promise<ApiResult<T>> {
+const VERCEL_QUERY_URL =
+  'https://vaani-rag-ai.vercel.app/api/query'
+
+async function request<T>(
+  path: string,
+  init?: RequestInit,
+  baseUrl: string = LOCAL_BASE_URL,
+): Promise<ApiResult<T>> {
   try {
-    const res = await fetch(`${BASE_URL}${path}`, {
-      headers: { 'Content-Type': 'application/json' },
+    const res = await fetch(`${baseUrl}${path}`, {
+      headers: {
+        'Content-Type': 'application/json',
+      },
       ...init,
     })
+
     if (!res.ok) {
       let detail = `Request failed with status ${res.status}`
+
       try {
-        const body = (await res.json()) as { detail?: string }
-        if (body.detail) detail = body.detail
+        const body = (await res.json()) as {
+          detail?: string
+          error?: string
+        }
+
+        if (body.detail) {
+          detail = body.detail
+        } else if (body.error) {
+          detail = body.error
+        }
       } catch {
-        // non-JSON error body
+        // Non-JSON error response.
       }
-      return { ok: false, data: null, error: detail }
+
+      return {
+        ok: false,
+        data: null,
+        error: detail,
+      }
     }
+
     const data = (await res.json()) as T
-    return { ok: true, data, error: null }
+
+    return {
+      ok: true,
+      data,
+      error: null,
+    }
   } catch (err) {
     return {
       ok: false,
       data: null,
-      error: err instanceof Error ? err.message : 'Network error',
+      error:
+        err instanceof Error
+          ? err.message
+          : 'Network error',
     }
   }
 }
 
 export const api = {
-  health: () => request<HealthResponse>('/health'),
-  analytics: () => request<MetricsResponse>('/metrics'),
-  knowledgeBase: () => request<KnowledgeBaseResponse>('/knowledge-base'),
+  /*
+   * Local FastAPI backend.
+   */
+  health: () =>
+    request<HealthResponse>('/health'),
+
+  analytics: () =>
+    request<MetricsResponse>('/metrics'),
+
+  knowledgeBase: () =>
+    request<KnowledgeBaseResponse>(
+      '/knowledge-base',
+    ),
+
+  /*
+   * Local Sarvam STT backend.
+   */
   transcribe: (payload: { audio: Blob }) => {
     const form = new FormData()
-    form.append('file', payload.audio, 'recording.wav')
-    return fetch(`${BASE_URL}/stt`, { method: 'POST', body: form })
+
+    form.append(
+      'file',
+      payload.audio,
+      'recording.wav',
+    )
+
+    return fetch(
+      `${LOCAL_BASE_URL}/stt`,
+      {
+        method: 'POST',
+        body: form,
+      },
+    )
       .then(async (res) => {
         if (!res.ok) {
-          let detail = `Request failed with status ${res.status}`
+          let detail =
+            `Request failed with status ${res.status}`
+
           try {
-            const body = (await res.json()) as { detail?: string }
-            if (body.detail) detail = body.detail
+            const body =
+              (await res.json()) as {
+                detail?: string
+              }
+
+            if (body.detail) {
+              detail = body.detail
+            }
           } catch {
-            // non-JSON error body
+            // Non-JSON error response.
           }
-          return { ok: false as const, text: null, error: detail }
+
+          return {
+            ok: false as const,
+            text: null,
+            error: detail,
+          }
         }
-        const data = (await res.json()) as { transcript: string }
-        return { ok: true as const, text: data.transcript, error: null }
+
+        const data =
+          (await res.json()) as {
+            transcript: string
+          }
+
+        return {
+          ok: true as const,
+          text: data.transcript,
+          error: null,
+        }
       })
       .catch((err: unknown) => ({
         ok: false as const,
         text: null,
-        error: err instanceof Error ? err.message : 'Network error',
+        error:
+          err instanceof Error
+            ? err.message
+            : 'Network error',
       }))
   },
-  ragQuery: (payload: { query: string; topK?: number }) =>
-    request<QueryResponse>('/query', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    }),
+
+  /*
+   * Production VaaniRAG query.
+   *
+   * This uses the verified Vercel endpoint.
+   */
+  ragQuery: (
+    payload: {
+      query: string
+      topK?: number
+    },
+  ) =>
+    request<QueryResponse>(
+      '',
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      },
+      VERCEL_QUERY_URL,
+    ),
 }
