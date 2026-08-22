@@ -227,20 +227,34 @@ Give a concise grounded answer.
             generation_ms,
         )
 
-    insufficient_phrases = [
-        "evidence is insufficient",
-        "evidence does not contain",
-        "provided evidence does not",
-        "does not contain information",
-        "not enough information",
-        "insufficient information",
+    # Detect common model phrases indicating
+    # that the retrieved evidence is insufficient.
+    insufficient_patterns = [
+        r"evidence.*insufficient",
+        r"evidence.*does not contain",
+        r"evidence.*doesn't contain",
+        r"provided evidence.*does not contain",
+        r"provided evidence.*doesn't contain",
+        r"evidence provided.*does not contain",
+        r"evidence provided.*doesn't contain",
+        r"does not contain enough information",
+        r"doesn't contain enough information",
+        r"not enough information",
+        r"insufficient information",
+        r"insufficient to answer",
+        r"insufficient to explain",
+        r"cannot answer",
+        r"can't answer",
+        r"unable to answer",
+        r"cannot determine",
+        r"can't determine",
     ]
 
     answer_lower = answer.lower()
 
     if any(
-        phrase in answer_lower
-        for phrase in insufficient_phrases
+        re.search(pattern, answer_lower)
+        for pattern in insufficient_patterns
     ):
         return (
             answer,
