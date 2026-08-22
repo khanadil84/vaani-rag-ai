@@ -15,7 +15,7 @@ CHECKPOINT = ROOT / "backend" / "pipeline" / "retrieval_checkpoint"
 
 _bm25 = None
 _corpus = None
-_exact_answers = {}
+_exact_answers = None
 
 
 def normalize(text):
@@ -29,34 +29,41 @@ def normalize(text):
 def load_retrieval():
     global _bm25, _corpus, _exact_answers
 
-    if _bm25 is not None and _corpus is not None:
+    if _bm25 is not None:
         return
 
     with open(CHECKPOINT / "bm25_index.pkl", "rb") as f:
         _bm25 = pickle.load(f)
 
+    # Load only the columns needed by the API.
     _corpus = pd.read_parquet(
-        CHECKPOINT / "sentence_corpus.parquet"
+        CHECKPOINT / "sentence_corpus.parquet",
+        columns=[
+            "query_en",
+            "query_hi",
+            "answer_en",
+            "answer_hi",
+            "passage_en",
+            "passage_hi",
+        ],
     )
 
-    # Build exact-query answer maps once per server instance.
-    for _, row in _corpus.iterrows():
-        query_en = normalize(row.get("query_en", ""))
-        answer_en = str(row.get("answer_en", "") or "").strip()
+    _exact_answers = {}
 
-        if query_en and answer_en:
+    # Build exact lookup once.
+    for row in _corpus.itertuples(index=False):
+        query_en = normalize(row.query_en)
+        if query_en and row.answer_en:
             _exact_answers.setdefault(
                 ("en", query_en),
-                answer_en,
+                str(row.answer_en).strip(),
             )
 
-        query_hi = normalize(row.get("query_hi", ""))
-        answer_hi = str(row.get("answer_hi", "") or "").strip()
-
-        if query_hi and answer_hi:
+        query_hi = normalize(row.query_hi)
+        if query_hi and row.answer_hi:
             _exact_answers.setdefault(
                 ("hi", query_hi),
-                answer_hi,
+                str(row.answer_hi).strip(),
             )
 
 
@@ -70,16 +77,14 @@ def retrieve(query, top_k=5):
 
     language = "hi" if has_hindi else "en"
 
-    # First check the verified corpus answer.
     exact_answer = _exact_answers.get(
         (language, normalize(query))
     )
 
-    tokens = query.lower().split()
-    scores = _bm25.get_scores(tokens)
+    scores = _bm25.get_scores(
+        query.lower().split()
+    )
 
-    # Retrieve a larger candidate pool so the exact relevant
-    # document has a better chance of appearing as evidence.
     candidate_k = max(top_k, 20)
 
     ranked = sorted(
@@ -108,31 +113,22 @@ def retrieve(query, top_k=5):
         else "query_en"
     )
 
-    for index, score in ranked:
-        row = _corpus.iloc[index].to_dict()
+    for index, score in ranked[:top_k]:
+        row = _corpus.iloc[index]
 
         passage = str(
-            row.get(passage_key, "") or ""
+            row[passage_key] or ""
         )
 
         if not passage:
-            fallback_key = (
+            fallback = (
                 "passage_en"
-                if passage_key == "passage_hi"
+                if has_hindi
                 else "passage_hi"
             )
-
             passage = str(
-                row.get(fallback_key, "") or ""
+                row[fallback] or ""
             )
-
-        answer = str(
-            row.get(answer_key, "") or ""
-        )
-
-        query_match = str(
-            row.get(query_key, "") or ""
-        )
 
         if passage:
             evidence.append(
@@ -140,19 +136,19 @@ def retrieve(query, top_k=5):
                     "rank": len(evidence) + 1,
                     "score": float(score),
                     "passage": passage,
-                    "answer": answer,
-                    "query_match": query_match,
+                    "answer": str(
+                        row[answer_key] or ""
+                    ),
+                    "query_match": str(
+                        row[query_key] or ""
+                    ),
                 }
             )
-
-    # Return only requested top-K evidence.
-    evidence = evidence[:top_k]
 
     return evidence, exact_answer
 
 
 def generate_answer(query, evidence, exact_answer):
-    # Exact verified corpus answer.
     if exact_answer:
         return (
             exact_answer,
@@ -180,8 +176,7 @@ def generate_answer(query, evidence, exact_answer):
         )
 
     context = "\n\n".join(
-        f"[Evidence {item['rank']}]\n"
-        f"{item['passage']}"
+        f"[Evidence {item['rank']}]\n{item['passage']}"
         for item in evidence
     )
 
@@ -189,11 +184,14 @@ def generate_answer(query, evidence, exact_answer):
         api_key=api_key
     )
 
-    prompt = f"""
+    started = time.perf_counter()
+
+    response = client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=f"""
 You are VaaniRAG, a grounded retrieval assistant.
 
-Answer the user's question ONLY using the evidence below.
-
+Answer ONLY from the evidence below.
 Do not use outside knowledge.
 Do not invent facts.
 
@@ -203,14 +201,8 @@ Question:
 Evidence:
 {context}
 
-Give a concise answer.
-"""
-
-    started = time.perf_counter()
-
-    response = client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=prompt,
+Give a concise grounded answer.
+""",
     )
 
     generation_ms = (
@@ -246,32 +238,26 @@ class handler(BaseHTTPRequestHandler):
         ).encode("utf-8")
 
         self.send_response(status)
-
         self.send_header(
             "Content-Type",
             "application/json",
         )
-
         self.send_header(
             "Access-Control-Allow-Origin",
             "*",
         )
-
         self.send_header(
             "Access-Control-Allow-Methods",
             "POST, OPTIONS",
         )
-
         self.send_header(
             "Access-Control-Allow-Headers",
             "Content-Type",
         )
-
         self.send_header(
             "Content-Length",
             str(len(data)),
         )
-
         self.end_headers()
         self.wfile.write(data)
 
@@ -296,10 +282,9 @@ class handler(BaseHTTPRequestHandler):
                 )
             )
 
-            raw = self.rfile.read(length)
-
             payload = json.loads(
-                raw.decode("utf-8")
+                self.rfile.read(length)
+                .decode("utf-8")
             )
 
             query = str(
