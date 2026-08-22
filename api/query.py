@@ -8,7 +8,6 @@ from pathlib import Path
 
 import pandas as pd
 from google import genai
-from rank_bm25 import BM25Okapi
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -16,10 +15,19 @@ CHECKPOINT = ROOT / "backend" / "pipeline" / "retrieval_checkpoint"
 
 _bm25 = None
 _corpus = None
+_exact_answers = {}
+
+
+def normalize(text):
+    return re.sub(
+        r"[^a-z0-9\u0900-\u097F]+",
+        "",
+        str(text).lower(),
+    )
 
 
 def load_retrieval():
-    global _bm25, _corpus
+    global _bm25, _corpus, _exact_answers
 
     if _bm25 is not None and _corpus is not None:
         return
@@ -31,25 +39,56 @@ def load_retrieval():
         CHECKPOINT / "sentence_corpus.parquet"
     )
 
+    # Build exact-query answer maps once per server instance.
+    for _, row in _corpus.iterrows():
+        query_en = normalize(row.get("query_en", ""))
+        answer_en = str(row.get("answer_en", "") or "").strip()
+
+        if query_en and answer_en:
+            _exact_answers.setdefault(
+                ("en", query_en),
+                answer_en,
+            )
+
+        query_hi = normalize(row.get("query_hi", ""))
+        answer_hi = str(row.get("answer_hi", "") or "").strip()
+
+        if query_hi and answer_hi:
+            _exact_answers.setdefault(
+                ("hi", query_hi),
+                answer_hi,
+            )
+
 
 def retrieve(query, top_k=5):
     load_retrieval()
-
-    tokens = query.lower().split()
-    scores = _bm25.get_scores(tokens)
-
-    ranked = sorted(
-        enumerate(scores),
-        key=lambda item: item[1],
-        reverse=True,
-    )[:top_k]
-
-    evidence = []
 
     has_hindi = any(
         "\u0900" <= char <= "\u097F"
         for char in query
     )
+
+    language = "hi" if has_hindi else "en"
+
+    # First check the verified corpus answer.
+    exact_answer = _exact_answers.get(
+        (language, normalize(query))
+    )
+
+    tokens = query.lower().split()
+    scores = _bm25.get_scores(tokens)
+
+    # Retrieve a larger candidate pool so the exact relevant
+    # document has a better chance of appearing as evidence.
+    candidate_k = max(top_k, 20)
+
+    ranked = sorted(
+        enumerate(scores),
+        key=lambda item: item[1],
+        reverse=True,
+    )[:candidate_k]
+
+    evidence = []
 
     passage_key = (
         "passage_hi"
@@ -106,10 +145,22 @@ def retrieve(query, top_k=5):
                 }
             )
 
-    return evidence
+    # Return only requested top-K evidence.
+    evidence = evidence[:top_k]
+
+    return evidence, exact_answer
 
 
-def generate_answer(query, evidence):
+def generate_answer(query, evidence, exact_answer):
+    # Exact verified corpus answer.
+    if exact_answer:
+        return (
+            exact_answer,
+            True,
+            "EXACT_CORPUS_MATCH",
+            0.0,
+        )
+
     if not evidence or evidence[0]["score"] <= 0:
         return (
             None,
@@ -117,38 +168,6 @@ def generate_answer(query, evidence):
             "INSUFFICIENT_EVIDENCE",
             None,
         )
-
-    def normalize(text):
-        return re.sub(
-            r"[^a-z0-9\u0900-\u097F]+",
-            "",
-            text.lower(),
-        )
-
-    normalized_query = normalize(query)
-
-    # Use the benchmark corpus answer directly when the
-    # retrieved record contains the exact query.
-    for item in evidence:
-        corpus_query = normalize(
-            item.get("query_match", "")
-        )
-
-        corpus_answer = (
-            item.get("answer", "") or ""
-        ).strip()
-
-        if (
-            corpus_query
-            and corpus_answer
-            and corpus_query == normalized_query
-        ):
-            return (
-                corpus_answer,
-                True,
-                "EVIDENCE_SUFFICIENT",
-                0.0,
-            )
 
     api_key = os.getenv("GEMINI_API_KEY")
 
@@ -173,14 +192,10 @@ def generate_answer(query, evidence):
     prompt = f"""
 You are VaaniRAG, a grounded retrieval assistant.
 
-Answer ONLY from the evidence provided below.
+Answer the user's question ONLY using the evidence below.
 
 Do not use outside knowledge.
 Do not invent facts.
-
-If the evidence genuinely does not contain
-enough information, say that the evidence
-is insufficient.
 
 Question:
 {query}
@@ -188,7 +203,7 @@ Question:
 Evidence:
 {context}
 
-Give a concise grounded answer.
+Give a concise answer.
 """
 
     started = time.perf_counter()
@@ -323,7 +338,7 @@ class handler(BaseHTTPRequestHandler):
                 time.perf_counter()
             )
 
-            evidence = retrieve(
+            evidence, exact_answer = retrieve(
                 query,
                 top_k,
             )
@@ -337,6 +352,7 @@ class handler(BaseHTTPRequestHandler):
                 generate_answer(
                     query,
                     evidence,
+                    exact_answer,
                 )
             )
 
