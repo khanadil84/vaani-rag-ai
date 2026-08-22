@@ -67,7 +67,7 @@ export interface KnowledgeBaseResponse {
   documents: unknown[]
 }
 
-const LOCAL_BASE_URL = '/api'
+const LOCAL_BASE_URL = 'https://vaani-rag-ai.vercel.app/api'
 
 const VERCEL_QUERY_URL =
   'https://vaani-rag-ai.vercel.app/api/query'
