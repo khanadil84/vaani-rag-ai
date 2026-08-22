@@ -35,6 +35,7 @@ def load_retrieval():
     with open(CHECKPOINT / "bm25_index.pkl", "rb") as f:
         _bm25 = pickle.load(f)
 
+    # Load only the columns needed by the API.
     _corpus = pd.read_parquet(
         CHECKPOINT / "sentence_corpus.parquet",
         columns=[
@@ -49,9 +50,9 @@ def load_retrieval():
 
     _exact_answers = {}
 
+    # Build exact lookup once.
     for row in _corpus.itertuples(index=False):
         query_en = normalize(row.query_en)
-
         if query_en and row.answer_en:
             _exact_answers.setdefault(
                 ("en", query_en),
@@ -59,7 +60,6 @@ def load_retrieval():
             )
 
         query_hi = normalize(row.query_hi)
-
         if query_hi and row.answer_hi:
             _exact_answers.setdefault(
                 ("hi", query_hi),
@@ -126,7 +126,6 @@ def retrieve(query, top_k=5):
                 if has_hindi
                 else "passage_hi"
             )
-
             passage = str(
                 row[fallback] or ""
             )
@@ -193,13 +192,8 @@ def generate_answer(query, evidence, exact_answer):
 You are VaaniRAG, a grounded retrieval assistant.
 
 Answer ONLY from the evidence below.
-
 Do not use outside knowledge.
 Do not invent facts.
-
-If the evidence genuinely does not contain
-enough information, clearly say that the
-evidence is insufficient.
 
 Question:
 {query}
@@ -227,42 +221,6 @@ Give a concise grounded answer.
             generation_ms,
         )
 
-    # Detect common model phrases indicating
-    # that the retrieved evidence is insufficient.
-    insufficient_patterns = [
-        r"evidence.*insufficient",
-        r"evidence.*does not contain",
-        r"evidence.*doesn't contain",
-        r"provided evidence.*does not contain",
-        r"provided evidence.*doesn't contain",
-        r"evidence provided.*does not contain",
-        r"evidence provided.*doesn't contain",
-        r"does not contain enough information",
-        r"doesn't contain enough information",
-        r"not enough information",
-        r"insufficient information",
-        r"insufficient to answer",
-        r"insufficient to explain",
-        r"cannot answer",
-        r"can't answer",
-        r"unable to answer",
-        r"cannot determine",
-        r"can't determine",
-    ]
-
-    answer_lower = answer.lower()
-
-    if any(
-        re.search(pattern, answer_lower)
-        for pattern in insufficient_patterns
-    ):
-        return (
-            answer,
-            False,
-            "INSUFFICIENT_EVIDENCE",
-            generation_ms,
-        )
-
     return (
         answer,
         True,
@@ -280,32 +238,26 @@ class handler(BaseHTTPRequestHandler):
         ).encode("utf-8")
 
         self.send_response(status)
-
         self.send_header(
             "Content-Type",
             "application/json",
         )
-
         self.send_header(
             "Access-Control-Allow-Origin",
             "*",
         )
-
         self.send_header(
             "Access-Control-Allow-Methods",
             "POST, OPTIONS",
         )
-
         self.send_header(
             "Access-Control-Allow-Headers",
             "Content-Type",
         )
-
         self.send_header(
             "Content-Length",
             str(len(data)),
         )
-
         self.end_headers()
         self.wfile.write(data)
 
@@ -429,7 +381,7 @@ class handler(BaseHTTPRequestHandler):
                 500,
                 {
                     "detail":
-                    "Query processing failed",
+                        "Query processing failed",
                     "error": str(exc),
                 },
             )

@@ -1,16 +1,17 @@
 /**
  * VaaniRAG AI API client.
  *
- * Local FastAPI:
- *   /api/health
- *   /api/metrics
- *   /api/knowledge-base
- *   /api/stt
+ * LOCAL BACKEND ONLY
  *
- * Production Vercel RAG:
- *   https://vaani-rag-ai.vercel.app/api/query
+ * Backend:
+ *   http://localhost:10000/api
  *
- * Secrets are never stored here.
+ * Endpoints:
+ *   GET  /api/health
+ *   GET  /api/metrics
+ *   GET  /api/knowledge-base
+ *   POST /api/query
+ *   POST /api/stt
  */
 
 export interface ApiResult<T> {
@@ -67,32 +68,36 @@ export interface KnowledgeBaseResponse {
   documents: unknown[]
 }
 
-const LOCAL_BASE_URL = 'https://vaani-rag-backend.onrender.com/api'
-
-const VERCEL_QUERY_URL =
-  'https://vaani-rag-ai.vercel.app/api/query'
+/*
+ * LOCALHOST ONLY
+ */
+const LOCAL_BASE_URL = 'http://localhost:10000/api'
 
 async function request<T>(
   path: string,
   init?: RequestInit,
-  baseUrl: string = LOCAL_BASE_URL,
 ): Promise<ApiResult<T>> {
   try {
-    const res = await fetch(`${baseUrl}${path}`, {
-      headers: {
-        'Content-Type': 'application/json',
+    const res = await fetch(
+      `${LOCAL_BASE_URL}${path}`,
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        ...init,
       },
-      ...init,
-    })
+    )
 
     if (!res.ok) {
-      let detail = `Request failed with status ${res.status}`
+      let detail =
+        `Request failed with status ${res.status}`
 
       try {
-        const body = (await res.json()) as {
-          detail?: string
-          error?: string
-        }
+        const body =
+          (await res.json()) as {
+            detail?: string
+            error?: string
+          }
 
         if (body.detail) {
           detail = body.detail
@@ -100,7 +105,7 @@ async function request<T>(
           detail = body.error
         }
       } catch {
-        // Non-JSON error response.
+        // Non-JSON response.
       }
 
       return {
@@ -110,7 +115,8 @@ async function request<T>(
       }
     }
 
-    const data = (await res.json()) as T
+    const data =
+      (await res.json()) as T
 
     return {
       ok: true,
@@ -131,23 +137,38 @@ async function request<T>(
 
 export const api = {
   /*
-   * Local FastAPI backend.
+   * LOCAL HEALTH
    */
   health: () =>
-    request<HealthResponse>('/health'),
+    request<HealthResponse>(
+      '/health',
+    ),
 
+  /*
+   * LOCAL METRICS
+   */
   analytics: () =>
-    request<MetricsResponse>('/metrics'),
+    request<MetricsResponse>(
+      '/metrics',
+    ),
 
+  /*
+   * LOCAL KNOWLEDGE BASE
+   */
   knowledgeBase: () =>
     request<KnowledgeBaseResponse>(
       '/knowledge-base',
     ),
 
   /*
-   * Local Sarvam STT backend.
+   * LOCAL SARVAM STT
    */
-  transcribe: (payload: { audio: Blob }) => {
+  transcribe: (
+    payload: {
+      audio: Blob
+      language?: string
+    },
+  ) => {
     const form = new FormData()
 
     form.append(
@@ -172,10 +193,14 @@ export const api = {
             const body =
               (await res.json()) as {
                 detail?: string
+                error?: string
+                sarvam_response?: unknown
               }
 
             if (body.detail) {
               detail = body.detail
+            } else if (body.error) {
+              detail = body.error
             }
           } catch {
             // Non-JSON error response.
@@ -190,12 +215,27 @@ export const api = {
 
         const data =
           (await res.json()) as {
-            transcript: string
+            transcript?: string
+            text?: string
           }
+
+        const transcript =
+          data.transcript ||
+          data.text ||
+          ''
+
+        if (!transcript.trim()) {
+          return {
+            ok: false as const,
+            text: null,
+            error:
+              'Speech recognition returned an empty transcript.',
+          }
+        }
 
         return {
           ok: true as const,
-          text: data.transcript,
+          text: transcript,
           error: null,
         }
       })
@@ -210,9 +250,7 @@ export const api = {
   },
 
   /*
-   * Production VaaniRAG query.
-   *
-   * This uses the verified Vercel endpoint.
+   * LOCAL RAG QUERY
    */
   ragQuery: (
     payload: {
@@ -221,11 +259,12 @@ export const api = {
     },
   ) =>
     request<QueryResponse>(
-      '',
+      '/query',
       {
         method: 'POST',
-        body: JSON.stringify(payload),
+        body: JSON.stringify(
+          payload,
+        ),
       },
-      VERCEL_QUERY_URL,
     ),
 }
