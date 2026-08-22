@@ -12,8 +12,6 @@ export interface BackendStatus {
   refresh: () => Promise<void>
 }
 
-let sharedRequest: Promise<void> | null = null
-
 export function useBackendStatus(): BackendStatus {
   const [health, setHealth] = useState<HealthResponse | null>(null)
   const [metrics, setMetrics] = useState<MetricsResponse | null>(null)
@@ -25,48 +23,37 @@ export function useBackendStatus(): BackendStatus {
     setLoading(true)
     setError(null)
 
-    const load = async () => {
+    try {
+      const healthRes = await api.health()
+
+      if (!healthRes.ok || !healthRes.data) {
+        setStatus('offline')
+        setError(healthRes.error ?? 'Backend health check failed')
+        return
+      }
+
+      setHealth(healthRes.data)
+      setStatus('operational')
+
+      // Metrics are optional. A metrics failure must NOT make
+      // a healthy backend appear offline.
       const metricsRes = await api.analytics()
 
       if (metricsRes.ok && metricsRes.data) {
         setMetrics(metricsRes.data)
-
-        const operationalHealth: HealthResponse = {
-          status: 'operational',
-          version: '0.1.0',
-          uptime: metricsRes.data.uptimeSeconds,
-          service: 'VaaniRAG AI Backend',
-        }
-
-        setHealth(operationalHealth)
-        setStatus('operational')
-        return
       }
-
+    } catch (err) {
       setStatus('offline')
       setError(
-        metricsRes.error ?? 'Backend is unavailable',
+        err instanceof Error ? err.message : 'Backend connection failed',
       )
-    }
-
-    if (sharedRequest) {
-      await sharedRequest
-      return
-    }
-
-    sharedRequest = load()
-
-    try {
-      await sharedRequest
     } finally {
-      sharedRequest = null
+      setLoading(false)
     }
   }, [])
 
   useEffect(() => {
-    void refresh().finally(() => {
-      setLoading(false)
-    })
+    void refresh()
   }, [refresh])
 
   return {
